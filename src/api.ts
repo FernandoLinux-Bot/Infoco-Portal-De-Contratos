@@ -4,6 +4,16 @@ import type { UploadedFile } from './types';
 
 const API_BASE_URL = '/api/contracts';
 
+// Interface para o objeto de arquivo bruto retornado pelo Supabase
+interface SupabaseFile {
+  id: string;
+  name: string;
+  size: number;
+  url: string;
+  uploaded_at: string; // Supabase retorna datas como strings ISO
+}
+
+
 /**
  * Busca a lista de arquivos da nossa API de backend.
  */
@@ -15,11 +25,11 @@ export const getFiles = async (): Promise<UploadedFile[]> => {
     throw new Error(errorData.details || 'Falha ao carregar os contratos do servidor.');
   }
 
-  const data = await response.json();
+  const data: SupabaseFile[] = await response.json();
   
   // O Supabase retorna datas como strings ISO. Nós as convertemos para objetos Date
   // para que o resto da aplicação continue funcionando como esperado.
-  return data.map((file: any) => ({
+  return data.map((file) => ({
     id: file.id,
     name: file.name,
     size: file.size,
@@ -47,7 +57,7 @@ export const uploadFile = async (file: File): Promise<UploadedFile> => {
         throw new Error(errorData.details || 'Falha no upload do arquivo.');
     }
 
-    const newFileData = await response.json();
+    const newFileData: SupabaseFile = await response.json();
     
     // Converte a data retornada para um objeto Date
     return {
