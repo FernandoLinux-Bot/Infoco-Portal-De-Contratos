@@ -276,7 +276,8 @@ const App: FC = () => {
             const files = await api.getFiles();
             setUploadedFiles(files);
         } catch (error) {
-            addNotification('Falha ao carregar os contratos.', 'error');
+            const message = error instanceof Error ? error.message : 'Falha ao carregar os contratos.';
+            addNotification(message, 'error');
         } finally {
             setIsLoading(false);
         }
@@ -314,7 +315,7 @@ const App: FC = () => {
   const handleConfirmDelete = async () => {
     if (!fileToDelete) return;
     try {
-        await api.deleteFile(fileToDelete.id);
+        await api.deleteFile(fileToDelete.id, fileToDelete.url);
         setUploadedFiles(prevFiles => prevFiles.filter(f => f.id !== fileToDelete.id));
         addNotification('Arquivo excluído com sucesso.', 'success');
     } catch (error) {
