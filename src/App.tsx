@@ -1,18 +1,6 @@
 import React, { useState, useCallback, FC, DragEvent, useMemo, useEffect } from 'react';
-
-// --- TYPES ---
-interface UploadedFile {
-  id: string;
-  name: string;
-  size: number;
-  uploadedAt: Date;
-}
-
-interface Notification {
-  id: number;
-  message: string;
-  type: 'success' | 'error';
-}
+import * as api from './api';
+import type { UploadedFile, Notification as NotificationType } from './types';
 
 
 // --- UTILS ---
@@ -24,13 +12,6 @@ const formatBytes = (bytes: number, decimals = 2): string => {
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
 };
-
-// --- MOCK DATA ---
-const initialFiles: UploadedFile[] = [
-  { id: '1', name: 'contrato_cliente_alpha_2023.zip', size: 1258291, uploadedAt: new Date(Date.now() - 86400000) },
-  { id: '2', name: 'documentacao_parceria_beta_2024.zip', size: 5242880, uploadedAt: new Date() },
-  { id: '3', name: 'aditivo_contratual_gama_2023.zip', size: 8388608, uploadedAt: new Date(Date.now() - 172800000) },
-];
 
 // --- COMPONENTS ---
 
@@ -90,22 +71,8 @@ const FileUploader: FC<{
 
     setIsUploading(true);
     
-    // --- SIMULATE UPLOAD ---
-    // TODO: Substitua este bloco pela sua lógica de upload para o Vercel Blob.
-    await new Promise(resolve => setTimeout(resolve, 2000));
-
     try {
-        const success = Math.random() > 0.1;
-        if (!success) throw new Error('Falha simulada no upload.');
-      
-        const newUploadedFile: UploadedFile = {
-            id: crypto.randomUUID(),
-            name: file.name,
-            size: file.size,
-            uploadedAt: new Date(),
-        };
-
-        // TODO: Após o upload, salve os metadados (newUploadedFile) no Supabase.
+        const newUploadedFile = await api.uploadFile(file);
         onUploadSuccess(newUploadedFile);
         addNotification('Arquivo enviado com sucesso!', 'success');
         setFile(null);
@@ -122,13 +89,14 @@ const FileUploader: FC<{
       <h2>Enviar Novo Contrato</h2>
       <div
         className={`drop-zone ${isDragOver ? 'drag-over' : ''}`}
-        onClick={() => document.getElementById('file-input')?.click()}
+        onClick={() => !isUploading && document.getElementById('file-input')?.click()}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         role="button"
         aria-label="Área para arrastar e soltar arquivos"
         tabIndex={0}
+        style={{ cursor: isUploading ? 'not-allowed' : 'pointer' }}
       >
         <input 
             type="file" 
@@ -146,15 +114,18 @@ const FileUploader: FC<{
             <p><strong>Arquivo selecionado:</strong> {file.name} ({formatBytes(file.size)})</p>
         </div>
       )}
-
-      {isUploading && <div className="spinner" style={{marginTop: '1rem'}}></div>}
       
       <button 
         className="upload-button" 
         onClick={handleUpload} 
         disabled={!file || isUploading}
       >
-        {isUploading ? 'Enviando...' : 'Enviar Arquivo'}
+        {isUploading ? (
+          <>
+            <div className="spinner-inline"></div>
+            <span>Enviando...</span>
+          </>
+        ) : 'Enviar Arquivo'}
       </button>
     </div>
   );
@@ -188,13 +159,14 @@ const FileItem: FC<{
 
 const FileList: FC<{
     files: UploadedFile[];
+    isLoading: boolean;
     onDelete: (file: UploadedFile) => void;
     onDownload: (file: UploadedFile) => void;
     searchTerm: string;
     onSearchChange: (term: string) => void;
     sortOption: string;
     onSortChange: (option: string) => void;
-}> = ({ files, onDelete, onDownload, searchTerm, onSearchChange, sortOption, onSortChange }) => (
+}> = ({ files, isLoading, onDelete, onDownload, searchTerm, onSearchChange, sortOption, onSortChange }) => (
   <div className="card">
     <div className="card-header">
         <h2>Contratos Enviados</h2>
@@ -215,7 +187,12 @@ const FileList: FC<{
         </div>
     </div>
     
-    {files.length > 0 ? (
+    {isLoading ? (
+        <div className="loading-container">
+            <div className="spinner"></div>
+            <p>Carregando contratos...</p>
+        </div>
+    ) : files.length > 0 ? (
       <ul className="file-list">
         {files.map(file => (
           <FileItem key={file.id} file={file} onDelete={onDelete} onDownload={onDownload} />
@@ -249,7 +226,7 @@ const ConfirmationModal: FC<{
     );
 };
 
-const Notification: FC<{ notification: Notification, onClose: (id: number) => void }> = ({ notification, onClose }) => {
+const Notification: FC<{ notification: NotificationType, onClose: (id: number) => void }> = ({ notification, onClose }) => {
   useEffect(() => {
     const timer = setTimeout(() => {
       onClose(notification.id);
@@ -268,7 +245,7 @@ const Notification: FC<{ notification: Notification, onClose: (id: number) => vo
   );
 };
 
-const NotificationsContainer: FC<{ notifications: Notification[], onClose: (id: number) => void }> = ({ notifications, onClose }) => {
+const NotificationsContainer: FC<{ notifications: NotificationType[], onClose: (id: number) => void }> = ({ notifications, onClose }) => {
   return (
     <div className="notifications-container">
       {notifications.map(n => (
@@ -286,11 +263,26 @@ const Footer: FC = () => (
 
 
 const App: FC = () => {
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>(initialFiles);
+  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [sortOption, setSortOption] = useState('date-desc');
   const [fileToDelete, setFileToDelete] = useState<UploadedFile | null>(null);
-  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [notifications, setNotifications] = useState<NotificationType[]>([]);
+
+  useEffect(() => {
+    const fetchFiles = async () => {
+        try {
+            const files = await api.getFiles();
+            setUploadedFiles(files);
+        } catch (error) {
+            addNotification('Falha ao carregar os contratos.', 'error');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+    fetchFiles();
+  }, []);
 
   const addNotification = useCallback((message: string, type: 'success' | 'error') => {
     const newNotification = { id: Date.now(), message, type };
@@ -310,9 +302,8 @@ const App: FC = () => {
   };
   
   const handleDownload = (file: UploadedFile) => {
-    // TODO: Substitua '#' pela URL real do arquivo vinda do Vercel Blob.
     const link = document.createElement('a');
-    link.href = '#';
+    link.href = file.url;
     link.setAttribute('download', file.name);
     document.body.appendChild(link);
     link.click();
@@ -320,12 +311,18 @@ const App: FC = () => {
     addNotification(`Download de "${file.name}" iniciado.`, 'success');
   };
 
-  const handleConfirmDelete = () => {
+  const handleConfirmDelete = async () => {
     if (!fileToDelete) return;
-    // TODO: Adicione aqui a lógica para excluir o arquivo do Vercel Blob e do Supabase.
-    setUploadedFiles(prevFiles => prevFiles.filter(f => f.id !== fileToDelete.id));
-    setFileToDelete(null);
-    addNotification('Arquivo excluído com sucesso.', 'success');
+    try {
+        await api.deleteFile(fileToDelete.id);
+        setUploadedFiles(prevFiles => prevFiles.filter(f => f.id !== fileToDelete.id));
+        addNotification('Arquivo excluído com sucesso.', 'success');
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Não foi possível excluir o arquivo.';
+        addNotification(message, 'error');
+    } finally {
+        setFileToDelete(null);
+    }
   };
 
   const handleCloseModal = () => {
@@ -333,7 +330,7 @@ const App: FC = () => {
   };
 
   const filteredAndSortedFiles = useMemo(() => {
-    return uploadedFiles
+    return [...uploadedFiles] // Create a shallow copy before sorting
       .filter(file => file.name.toLowerCase().includes(searchTerm.toLowerCase()))
       .sort((a, b) => {
         switch (sortOption) {
@@ -360,6 +357,7 @@ const App: FC = () => {
         <div style={{height: '2rem'}}></div>
         <FileList 
             files={filteredAndSortedFiles} 
+            isLoading={isLoading}
             onDelete={handleDeleteRequest}
             onDownload={handleDownload}
             searchTerm={searchTerm}
