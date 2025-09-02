@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { put, del, type BlobResult } from '@vercel/blob';
+import { put, del, type PutBlobResult } from '@vercel/blob';
 
 // O Vercel injeta automaticamente estas variáveis de ambiente
 // a partir das integrações do Supabase e do Blob.
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
 
   try {
     // 1. Envia o arquivo para o Vercel Blob
-    const blob: BlobResult = await put(filename, request.body, {
+    const blob: PutBlobResult = await put(filename, request.body, {
       access: 'public',
     });
 
