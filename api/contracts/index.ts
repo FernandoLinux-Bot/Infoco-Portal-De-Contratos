@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { put, del, type PutBlobResult } from '@vercel/blob';
+import { put, del } from '@vercel/blob';
 
 // O Vercel injeta automaticamente estas variáveis de ambiente
 // a partir das integrações do Supabase e do Blob.
@@ -45,41 +45,30 @@ export async function GET() {
 /**
  * POST /api/contracts?filename=your-file.zip
  * Faz o upload de um novo arquivo para o Vercel Blob e salva seus metadados no Supabase.
- * **VERSÃO DE DIAGNÓSTICO COM LOGS DETALHADOS**
  */
 export async function POST(request: Request) {
-  console.log('--- INICIANDO UPLOAD (POST /api/contracts) ---');
-  
   const { searchParams } = new URL(request.url);
   const filename = searchParams.get('filename');
-  const contentLength = request.headers.get('content-length');
-  
-  console.log(`Nome do arquivo recebido: ${filename}`);
-  console.log(`Tamanho do conteúdo: ${contentLength}`);
 
   if (!filename || !request.body) {
-    console.error('ERRO: Nome do arquivo ou corpo da requisição ausente.');
-    return jsonResponse({ error: 'Nome do arquivo e corpo da requisição são obrigatórios' }, 400);
+    return jsonResponse({ error: 'Nome do arquivo e corpo da requisição são obrigatórios', details: 'Missing filename or request body.' }, 400);
   }
 
   try {
     // 1. Envia o arquivo para o Vercel Blob
-    console.log('Passo 1: Enviando arquivo para o Vercel Blob...');
-    const blob: PutBlobResult = await put(filename, request.body, {
+    // A função 'put' lida com o stream do corpo da requisição.
+    const blob = await put(filename, request.body, {
       access: 'public',
     });
-    console.log('Passo 1 SUCESSO: Arquivo enviado para o Vercel Blob.');
-    console.log('URL do Blob:', blob.url);
 
-    // 2. Prepara os dados para salvar no Supabase
+    // 2. Prepara os dados para salvar no Supabase. A `PutBlobResult` do Vercel Blob
+    // não tem mais a propriedade `size`, então usamos o header `content-length`.
     const fileDataToInsert = {
       name: filename,
-      size: Number(contentLength) || 0,
+      // FIX: Property 'size' does not exist on type 'PutBlobResult'. Using the 'content-length' header instead.
+      size: parseInt(request.headers.get('content-length') || '0', 10),
       url: blob.url,
     };
-    
-    console.log('Passo 2: Preparando para inserir metadados no Supabase...');
-    console.log('Dados a serem inseridos:', JSON.stringify(fileDataToInsert, null, 2));
 
     // 3. Salva os metadados no Supabase
     const { data: newContract, error: dbError } = await supabase
@@ -88,27 +77,17 @@ export async function POST(request: Request) {
       .select()
       .single();
 
-    // 4. Diagnóstico do resultado do Supabase
     if (dbError) {
-      console.error('--- ERRO CRÍTICO NO SUPABASE ---');
-      console.error('A inserção no banco de dados falhou. Detalhes do erro:', JSON.stringify(dbError, null, 2));
       // Se a inserção no banco falhar, deleta o blob órfão para manter a consistência
-      console.log('Iniciando limpeza: Deletando blob órfão de', blob.url);
       await del(blob.url);
-      console.log('Limpeza concluída.');
-      throw dbError; // Lança o erro para a resposta final
+      throw dbError; // Lança o erro para ser capturado pelo catch
     }
 
-    console.log('Passo 2 SUCESSO: Metadados inseridos no Supabase.');
-    console.log('Resposta do Supabase (newContract):', JSON.stringify(newContract, null, 2));
-    
-    console.log('--- UPLOAD CONCLUÍDO COM SUCESSO ---');
     return jsonResponse(newContract, 201); // 201 Created
 
   } catch (error) {
-    console.error('--- ERRO INESPERADO NO BLOCO CATCH ---');
     const message = error instanceof Error ? error.message : 'Unknown error';
-    console.error('Detalhes do erro:', JSON.stringify(error, null, 2));
+    console.error('Falha no upload:', error);
     return jsonResponse({ error: 'Falha ao fazer upload do arquivo', details: message }, 500);
   }
 }
