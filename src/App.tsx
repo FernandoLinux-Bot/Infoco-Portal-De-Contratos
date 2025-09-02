@@ -23,7 +23,7 @@ const Header: FC = () => (
 );
 
 const FileUploader: FC<{ 
-    onUploadSuccess: (file: UploadedFile) => void;
+    onUploadSuccess: () => void;
     addNotification: (message: string, type: 'success' | 'error') => void;
 }> = ({ onUploadSuccess, addNotification }) => {
   const [file, setFile] = useState<File | null>(null);
@@ -72,9 +72,9 @@ const FileUploader: FC<{
     setIsUploading(true);
     
     try {
-        const newUploadedFile = await api.uploadFile(file);
-        onUploadSuccess(newUploadedFile);
+        await api.uploadFile(file);
         addNotification('Arquivo enviado com sucesso!', 'success');
+        onUploadSuccess(); // Sinaliza para o componente pai recarregar a lista
         setFile(null);
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Ocorreu um erro desconhecido.';
@@ -269,33 +269,35 @@ const App: FC = () => {
   const [sortOption, setSortOption] = useState('date-desc');
   const [fileToDelete, setFileToDelete] = useState<UploadedFile | null>(null);
   const [notifications, setNotifications] = useState<NotificationType[]>([]);
-
-  useEffect(() => {
-    const fetchFiles = async () => {
-        try {
-            const files = await api.getFiles();
-            setUploadedFiles(files);
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Falha ao carregar os contratos.';
-            addNotification(message, 'error');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-    fetchFiles();
-  }, []);
-
+  
   const addNotification = useCallback((message: string, type: 'success' | 'error') => {
     const newNotification = { id: Date.now(), message, type };
     setNotifications(prev => [...prev, newNotification]);
   }, []);
 
+  const fetchFiles = useCallback(async () => {
+    setIsLoading(true);
+    try {
+        const files = await api.getFiles();
+        setUploadedFiles(files);
+    } catch (error) {
+        const message = error instanceof Error ? error.message : 'Falha ao carregar os contratos.';
+        addNotification(message, 'error');
+    } finally {
+        setIsLoading(false);
+    }
+  }, [addNotification]);
+
+  useEffect(() => {
+    fetchFiles();
+  }, [fetchFiles]);
+
   const removeNotification = (id: number) => {
     setNotifications(prev => prev.filter(n => n.id !== id));
   };
   
-  const handleUploadSuccess = (newFile: UploadedFile) => {
-    setUploadedFiles(prevFiles => [newFile, ...prevFiles]);
+  const handleUploadSuccess = () => {
+    fetchFiles(); // Recarrega a lista do servidor
   };
   
   const handleDeleteRequest = (file: UploadedFile) => {
@@ -316,8 +318,8 @@ const App: FC = () => {
     if (!fileToDelete) return;
     try {
         await api.deleteFile(fileToDelete.id, fileToDelete.url);
-        setUploadedFiles(prevFiles => prevFiles.filter(f => f.id !== fileToDelete.id));
         addNotification('Arquivo excluído com sucesso.', 'success');
+        fetchFiles(); // Recarrega a lista do servidor
     } catch (error) {
         const message = error instanceof Error ? error.message : 'Não foi possível excluir o arquivo.';
         addNotification(message, 'error');
@@ -331,7 +333,7 @@ const App: FC = () => {
   };
 
   const filteredAndSortedFiles = useMemo(() => {
-    return [...uploadedFiles] // Create a shallow copy before sorting
+    return [...uploadedFiles]
       .filter(file => file.name.toLowerCase().includes(searchTerm.toLowerCase()))
       .sort((a, b) => {
         switch (sortOption) {
