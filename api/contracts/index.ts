@@ -45,45 +45,74 @@ export async function GET() {
 /**
  * POST /api/contracts?filename=your-file.zip
  * Faz o upload de um novo arquivo para o Vercel Blob e salva seus metadados no Supabase.
+ * **VERSÃO DE DIAGNÓSTICO COM LOGS DETALHADOS**
  */
 export async function POST(request: Request) {
+  console.log('--- INICIANDO UPLOAD (POST /api/contracts) ---');
+  
   const { searchParams } = new URL(request.url);
   const filename = searchParams.get('filename');
+  const contentLength = request.headers.get('content-length');
+  
+  console.log(`Nome do arquivo recebido: ${filename}`);
+  console.log(`Tamanho do conteúdo: ${contentLength}`);
 
   if (!filename || !request.body) {
+    console.error('ERRO: Nome do arquivo ou corpo da requisição ausente.');
     return jsonResponse({ error: 'Nome do arquivo e corpo da requisição são obrigatórios' }, 400);
   }
 
   try {
-    // 1. Envia o arquivo para o Vercel Blob. O Vercel adicionará um sufixo único
-    // ao nome do caminho (pathname) para evitar colisões.
+    // 1. Envia o arquivo para o Vercel Blob
+    console.log('Passo 1: Enviando arquivo para o Vercel Blob...');
     const blob: PutBlobResult = await put(filename, request.body, {
       access: 'public',
     });
+    console.log('Passo 1 SUCESSO: Arquivo enviado para o Vercel Blob.');
+    console.log('URL do Blob:', blob.url);
 
-    // 2. Salva os metadados no Supabase, usando o NOME ORIGINAL do arquivo.
+    // 2. Prepara os dados para salvar no Supabase
+    const fileDataToInsert = {
+      name: filename,
+      size: Number(contentLength) || 0,
+      url: blob.url,
+    };
+    
+    console.log('Passo 2: Preparando para inserir metadados no Supabase...');
+    console.log('Dados a serem inseridos:', JSON.stringify(fileDataToInsert, null, 2));
+
+    // 3. Salva os metadados no Supabase
     const { data: newContract, error: dbError } = await supabase
       .from('contracts')
-      .insert({
-        name: filename, // CORREÇÃO: Usar o nome de arquivo original fornecido pelo usuário.
-        size: Number(request.headers.get('content-length')) || 0,
-        url: blob.url,
-      })
+      .insert(fileDataToInsert)
       .select()
       .single();
 
+    // 4. Diagnóstico do resultado do Supabase
     if (dbError) {
+      console.error('--- ERRO CRÍTICO NO SUPABASE ---');
+      console.error('A inserção no banco de dados falhou. Detalhes do erro:', JSON.stringify(dbError, null, 2));
       // Se a inserção no banco falhar, deleta o blob órfão para manter a consistência
+      console.log('Iniciando limpeza: Deletando blob órfão de', blob.url);
       await del(blob.url);
-      throw dbError;
+      console.log('Limpeza concluída.');
+      throw dbError; // Lança o erro para a resposta final
     }
 
+    console.log('Passo 2 SUCESSO: Metadados inseridos no Supabase.');
+    console.log('Resposta do Supabase (newContract):', JSON.stringify(newContract, null, 2));
+    
+    console.log('--- UPLOAD CONCLUÍDO COM SUCESSO ---');
     return jsonResponse(newContract, 201); // 201 Created
+
   } catch (error) {
+    console.error('--- ERRO INESPERADO NO BLOCO CATCH ---');
     const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Detalhes do erro:', JSON.stringify(error, null, 2));
     return jsonResponse({ error: 'Falha ao fazer upload do arquivo', details: message }, 500);
   }
 }
+
 
 /**
  * DELETE /api/contracts
