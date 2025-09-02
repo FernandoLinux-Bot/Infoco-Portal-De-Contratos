@@ -55,16 +55,17 @@ export async function POST(request: Request) {
   }
 
   try {
-    // 1. Envia o arquivo para o Vercel Blob
+    // 1. Envia o arquivo para o Vercel Blob. O Vercel adicionará um sufixo único
+    // ao nome do caminho (pathname) para evitar colisões.
     const blob: PutBlobResult = await put(filename, request.body, {
       access: 'public',
     });
 
-    // 2. Salva os metadados no Supabase
+    // 2. Salva os metadados no Supabase, usando o NOME ORIGINAL do arquivo.
     const { data: newContract, error: dbError } = await supabase
       .from('contracts')
       .insert({
-        name: blob.pathname,
+        name: filename, // CORREÇÃO: Usar o nome de arquivo original fornecido pelo usuário.
         size: Number(request.headers.get('content-length')) || 0,
         url: blob.url,
       })
