@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { put, del } from '@vercel/blob';
+import { put, del, head } from '@vercel/blob';
 
 // O Vercel injeta automaticamente estas variáveis de ambiente
 // a partir das integrações do Supabase e do Blob.
@@ -48,25 +48,27 @@ export async function GET() {
  */
 export async function POST(request: Request) {
   const { searchParams } = new URL(request.url);
-  const filename = searchParams.get('filename');
+  const filenameParam = searchParams.get('filename');
 
-  if (!filename || !request.body) {
+  if (!filenameParam || !request.body) {
     return jsonResponse({ error: 'Nome do arquivo e corpo da requisição são obrigatórios', details: 'Missing filename or request body.' }, 400);
   }
+  
+  // Sanitiza o nome do arquivo para remover possíveis caminhos de diretório
+  const sanitizedFilename = filenameParam.split(/[/\\]/).pop() ?? 'unknown-file.zip';
 
   try {
     // 1. Envia o arquivo para o Vercel Blob
-    // A função 'put' lida com o stream do corpo da requisição.
-    const blob = await put(filename, request.body, {
+    const blob = await put(sanitizedFilename, request.body, {
       access: 'public',
     });
 
-    // 2. Prepara os dados para salvar no Supabase. A `PutBlobResult` do Vercel Blob
-    // não tem mais a propriedade `size`, então usamos o header `content-length`.
+    // 2. Obtém os metadados do blob, incluindo o tamanho, de forma confiável
+    const blobMetadata = await head(blob.url);
+    
     const fileDataToInsert = {
-      name: filename,
-      // FIX: Property 'size' does not exist on type 'PutBlobResult'. Using the 'content-length' header instead.
-      size: parseInt(request.headers.get('content-length') || '0', 10),
+      name: sanitizedFilename,
+      size: blobMetadata.size, // Usa o tamanho retornado pelo serviço de blob, que é confiável
       url: blob.url,
     };
 
@@ -80,7 +82,7 @@ export async function POST(request: Request) {
     if (dbError) {
       // Se a inserção no banco falhar, deleta o blob órfão para manter a consistência
       await del(blob.url);
-      throw dbError; // Lança o erro para ser capturado pelo catch
+      throw dbError;
     }
 
     return jsonResponse(newContract, 201); // 201 Created
