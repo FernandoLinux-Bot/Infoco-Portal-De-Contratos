@@ -1,7 +1,11 @@
-import React, { useState, useCallback, FC, DragEvent, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, FC, DragEvent, useMemo, useEffect, KeyboardEvent } from 'react';
 import * as api from './api';
 import type { UploadedFile, Notification as NotificationType } from './types';
 
+
+// --- CONSTANTS ---
+const MAX_FILE_SIZE_MB = 10;
+const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
 
 // --- UTILS ---
 const formatBytes = (bytes: number, decimals = 2): string => {
@@ -34,6 +38,11 @@ const FileUploader: FC<{
     if (selectedFile) {
       if (selectedFile.type !== 'application/zip' && !selectedFile.name.endsWith('.zip')) {
         addNotification('Formato de arquivo inválido. Por favor, envie apenas arquivos .zip.', 'error');
+        setFile(null);
+        return;
+      }
+       if (selectedFile.size > MAX_FILE_SIZE_BYTES) {
+        addNotification(`Arquivo muito grande. O tamanho máximo permitido é de ${MAX_FILE_SIZE_MB}MB.`, 'error');
         setFile(null);
         return;
       }
@@ -84,17 +93,25 @@ const FileUploader: FC<{
     }
   };
 
+   const handleKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      document.getElementById('file-input')?.click();
+    }
+  };
+
   return (
     <div className="card">
       <h2>Enviar Novo Contrato</h2>
       <div
         className={`drop-zone ${isDragOver ? 'drag-over' : ''}`}
         onClick={() => !isUploading && document.getElementById('file-input')?.click()}
+        onKeyDown={handleKeyDown}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
         role="button"
-        aria-label="Área para arrastar e soltar arquivos"
+        aria-label={`Área para arrastar e soltar arquivos. Limite de ${MAX_FILE_SIZE_MB}MB por arquivo.`}
         tabIndex={0}
         style={{ cursor: isUploading ? 'not-allowed' : 'pointer' }}
       >
@@ -147,10 +164,10 @@ const FileItem: FC<{
             </p>
         </div>
         <div className="file-item-actions">
-            <button className="download-button" aria-label={`Download ${file.name}`} onClick={() => onDownload(file)}>
+            <button className="download-button" title="Baixar arquivo" aria-label={`Download ${file.name}`} onClick={() => onDownload(file)}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
             </button>
-            <button className="delete-button" aria-label={`Excluir ${file.name}`} onClick={() => onDelete(file)}>
+            <button className="delete-button" title="Excluir arquivo" aria-label={`Excluir ${file.name}`} onClick={() => onDelete(file)}>
                 <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>
             </button>
         </div>
@@ -257,7 +274,7 @@ const NotificationsContainer: FC<{ notifications: NotificationType[], onClose: (
 
 const Footer: FC = () => (
     <footer className="footer">
-        <p>&copy; {new Date().getFullYear()} Sua Empresa de Software. Todos os direitos reservados.</p>
+        <p>&copy; {new Date().getFullYear()} Portal de Contratos. Todos os direitos reservados.</p>
     </footer>
 );
 
